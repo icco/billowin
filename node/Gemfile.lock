@@ -132,6 +132,7 @@ GEM
     net-ssh (3.0.1)
     nokogiri (1.6.6.2)
       mini_portile (~> 0.6.0)
+    rake (10.4.2)
     xml-simple (1.1.5)
 
 PLATFORMS
@@ -141,6 +142,7 @@ DEPENDENCIES
   bundler
   chronic
   fog!
+  rake
 
 BUNDLED WITH
    1.10.2

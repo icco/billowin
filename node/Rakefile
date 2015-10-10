@@ -1,0 +1,12 @@
+require 'bundler/setup'
+
+desc "Creates a new node for running tasks on."
+task :new_node do
+
+end
+
+
+desc "Creates a new server node for managing nodes."
+task :new_server do
+
+end
