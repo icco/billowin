@@ -8,5 +8,103 @@ end
 
 desc "Creates a new server node for managing nodes."
 task :new_server do
+    # Bootstrap server
+    puts "--- Booting Server (#{Time.now})"
+    disk = compute_connection.disks.create({
+      :name => "#{NAME}-disk-#{Time.now.to_i}",
+      :size_gb => DISK_SIZE,
+      :zone_name => ZONE,
+      :source_image => 'backports-debian-7-wheezy-v20131127',
+    })
+    disk2 = compute_connection.disks.create({
+      :name => "#{NAME}-disk2-#{Time.now.to_i}",
+      :size_gb => DISK2_SIZE,
+      :zone_name => ZONE,
+    })
+
+    disk.wait_for { disk.ready? }
+    disk2.wait_for { disk.ready? }
+
+    script = StartupScript.new(HOSTNAME, 'packages.txt', USERS).to_s
+
+    attributes = {
+      :name => NAME,
+      :username => "nat",
+      :private_key_path => PRIVATE_KEY,
+      :public_key_path  => PUBLIC_KEY,
+      :disks => [ disk.get_as_boot_disk(true), disk2 ],
+      :machine_type => MACHINE_TYPE,
+      :external_ip => IP,
+      :zone_name => ZONE,
+      :metadata => {
+        # https://developers.google.com/compute/docs/howtos/startupscript#example
+        'startup-script' => script,
+      },
+    }
+    server = compute_connection.servers.bootstrap(attributes)
+    p server
+
+    commands = [
+      "mkdir -p ~/Projects",
+      "mkdir -p ~/Sites",
+      "mkdir -p ~/tmp",
+      "mkdir -p ~/go_path",
+    ]
+    ssh_and_run commands
+
+    puts "--- Delete local known_hosts for #{IP} (#{Time.now})"
+    Kernel.system "ssh-keygen -R #{IP}"
+
+    puts "--- Add SSH Key to Github (#{Time.now})"
+    k = SSHKey.generate
+
+    pub_file = Tempfile.new('icco_key')
+    pub_file.write(k.ssh_public_key)
+    pub_file.close
+    server.scp_upload(pub_file.path, "/home/#{USERNAME}/.ssh/id_rsa.pub")
+
+    pri_file = Tempfile.new('icco_key')
+    pri_file.write(k.private_key)
+    pri_file.close
+    server.scp_upload(pri_file.path, "/home/#{USERNAME}/.ssh/id_rsa")
+
+    data = { :title => "#{NAME}-#{Time.new.strftime('%Y.%m.%d.%H.%M')}", :key => k.ssh_public_key }.to_json
+    commands = [
+      "curl -X POST -d '#{data}' -u #{GITHUB_PAT}:x-oauth-basic https://api.github.com/user/keys -H \"Content-Type: application/json\""
+    ]
+    ssh_and_run commands
+
+    puts "--- Installing github keys (#{Time.now})"
+    ssh_and_run [ "ssh-keyscan -t rsa,dsa github.com | sort -u > ~/.ssh/known_hosts" ]
+
+    # [#<Fog::SSH::Result:0x007fa0916ee1d0 @command="which git", @stderr="", @stdout="", @status=1>]
+    server.wait_for { ssh('which git').first.stdout != '' }
+
+    puts "--- Copying over init.d scripts"
+    startup_scripts = [ ]
+    init_tmp = "/home/#{USERNAME}/tmp/init.d"
+    ssh_and_run [ "mkdir -p #{init_tmp}" ]
+    Dir.glob("./etc/init.d/*").each do |file|
+      filename = File.basename(file)
+      abs_file = File.expand_path(file)
+      server.scp_upload(abs_file, "#{init_tmp}/#{filename}")
+
+      # These get run after setup
+      startup_scripts.push "sudo chmod +x /etc/init.d/#{filename}"
+      startup_scripts.push "sudo update-rc.d #{filename} defaults"
+      startup_scripts.push "sudo service #{filename} start"
+    end
+    ssh_and_run [ "sudo mv #{init_tmp}/* /etc/init.d/" ]
+
+    puts "--- Git found and installed."
+    Rake::Task["sites:clone"].invoke
+
+    puts "--- Wait for setup to finish."
+    server.wait_for(Fog.timeout, 60) { ssh('cat /tmp/done.txt').first.status == 0 }
+
+    puts "--- Run startup scripts."
+    ssh_and_run startup_scripts
+
+    puts "--- Done! (#{Time.now})"
 
 end
