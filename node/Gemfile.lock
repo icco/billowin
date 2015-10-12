@@ -169,6 +169,7 @@ GEM
       faraday (~> 0.9)
       jwt (~> 1.5)
       multi_json (~> 1.10)
+    sshkey (1.7.0)
     thread_safe (0.3.5)
     tzinfo (1.2.2)
       thread_safe (~> 0.1)
@@ -182,6 +183,7 @@ DEPENDENCIES
   fog
   google-api-client
   rake
+  sshkey
 
 BUNDLED WITH
    1.10.2
