@@ -82,7 +82,8 @@ def startup_script package_file_name, user_list
   commands.push "mkfs.ext4 /dev/sdb1"
   commands.push "curl https://go.googlecode.com/files/go1.5.1.linux-amd64.tar.gz > /tmp/go1.5.1.linux-amd64.tar.gz"
   commands.push "tar -C /usr/local -xzf /tmp/go1.5.1.linux-amd64.tar.gz"
-  commands.push "su nat -c '\\curl -sSL https://get.rvm.io | bash -s stable --ruby'"
+  commands.push "su #{USERNAME} -c 'gpg --keyserver hkp://keys.gnupg.net --recv-keys 409B6B1796C275462A1703113804BB82D39DC0E3'"
+  commands.push "su #{USERNAME} -c '\\curl -sSL https://get.rvm.io | bash -s stable --ruby'"
   commands.push "echo 'DONE!' > /tmp/done.txt"
 
     return <<-EOF
@@ -113,7 +114,7 @@ def boot_server post_boot_scripts = []
 
   attributes = {
     :name => NAME,
-    :username => "nat",
+    :username => USERNAME,
     :private_key_path => PRIVATE_KEY,
     :public_key_path  => PUBLIC_KEY,
     :disks => [ disk.get_as_boot_disk(true), disk2 ],
