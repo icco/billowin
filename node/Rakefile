@@ -13,11 +13,13 @@ require "zlib"
 # Yeah yeah yeah, we shouldn't hard code this stuff. I put ripped so much of
 # this from when I was automating my personal deployment, that a lot is hard
 # coded into constants here.
+INIT_TIME    = Time.now
 USERNAME     = "nat"
 USERS        = [USERNAME]
-NAME         = "billow-in" # GCE Doesn't allow dots
+NAME         = "billow-in-#{INIT_TIME.to_i}" # GCE Doesn't allow dots
 REGION       = "europe-west1"
-ZONE         = "#{REGION}-a"
+ZONE         = "#{REGION}-b"
+IP           = nil
 MACHINE_TYPE = "n1-standard-1"
 GITHUB_PAT   = ENV['GITHUB_ACCESS_TOKEN']
 PRIVATE_KEY  = File.expand_path("~/Dropbox/Keys/gce_key")
@@ -64,14 +66,14 @@ def scp_upload from, to
   return server.scp_upload(File.expand_path(from), File.expand_path(to))
 end
 
-def startup_script pakages_file_name, user_list
+def startup_script package_file_name, user_list
   commands = []
 
   commands.push "apt-get update"
   commands.push "apt-get -y install aptitude vim git make curl software-properties-common dnsutils"
   commands.push "sed -i 's/^# d/d/g' /etc/apt/sources.list"
   commands.push "aptitude update && sudo DEBIAN_FRONTEND=noninteractive aptitude -y upgrade"
-  commands.push "DEBIAN_FRONTEND=noninteractive aptitude -y install #{File.readlines(package_file).map {|l| l.strip }.join ' '}"
+  commands.push "DEBIAN_FRONTEND=noninteractive aptitude -y install #{File.readlines(package_file_name).map {|l| l.strip }.join ' '}"
   #commands.push "echo '#{hostname}' > /etc/hostname && invoke-rc.d hostname.sh start"
   commands.push "sysctl --system"
   commands.push "echo ';' | sfdisk /dev/sdb"
@@ -93,13 +95,13 @@ def boot_server post_boot_scripts = []
 
   puts "--- Creating Disks (#{Time.now})"
   disk = compute_connection.disks.create({
-    :name => "#{NAME}-disk-#{Time.now.to_i}",
+    :name => "#{NAME}-disk-boot",
     :size_gb => DISK_SIZE,
     :zone_name => ZONE,
     :source_image => 'container-vm-v20150715',
   })
   disk2 = compute_connection.disks.create({
-    :name => "#{NAME}-disk2-#{Time.now.to_i}",
+    :name => "#{NAME}-disk-200",
     :size_gb => DISK2_SIZE,
     :zone_name => ZONE,
   })
@@ -107,7 +109,7 @@ def boot_server post_boot_scripts = []
   disk.wait_for { disk.ready? }
   disk2.wait_for { disk.ready? }
 
-  script = startup_script.new('packages.txt', USERS).to_s
+  script = startup_script('packages.txt', USERS).to_s
 
   attributes = {
     :name => NAME,
@@ -121,11 +123,11 @@ def boot_server post_boot_scripts = []
       # https://developers.google.com/compute/docs/howtos/startupscript#example
       'startup-script' => script,
     },
+    auto_restart: true
   }
 
   puts "--- Booting Server (#{Time.now})"
   server = compute_connection.servers.bootstrap(attributes)
-  p server
 
   commands = [
     "mkdir -p ~/Projects",
@@ -135,8 +137,14 @@ def boot_server post_boot_scripts = []
   ]
   ssh_and_run commands
 
-  puts "--- Delete local known_hosts for #{IP} (#{Time.now})"
-  Kernel.system "ssh-keygen -R #{IP}"
+  if IP.nil?
+    ip = server.network_interfaces.first["accessConfigs"].first["natIP"]
+  else
+    ip = IP
+  end
+
+  puts "--- Delete local known_hosts for #{ip} (#{Time.now})"
+  Kernel.system "ssh-keygen -R #{ip}"
 
   puts "--- Add SSH Key to Github (#{Time.now})"
   k = SSHKey.generate
@@ -151,7 +159,7 @@ def boot_server post_boot_scripts = []
   pri_file.close
   server.scp_upload(pri_file.path, "/home/#{USERNAME}/.ssh/id_rsa")
 
-  data = { :title => "#{NAME}-#{Time.new.strftime('%Y.%m.%d.%H.%M')}", :key => k.ssh_public_key }.to_json
+  data = { :title => "#{NAME}-#{INIT_TIME.strftime('%Y.%m.%d.%H.%M')}", :key => k.ssh_public_key }.to_json
   commands = [
     "curl -X POST -d '#{data}' -u #{GITHUB_PAT}:x-oauth-basic https://api.github.com/user/keys -H \"Content-Type: application/json\""
   ]
@@ -173,6 +181,7 @@ def boot_server post_boot_scripts = []
   ssh_and_run post_boot_scripts
 
   puts "--- Done! (#{Time.now})"
+  puts "--- Running at #{ip}"
 
   return server
 end
