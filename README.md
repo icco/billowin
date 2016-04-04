@@ -8,8 +8,17 @@ I keep saying I want to build a solution to my hatred for what Heroku has become
 
 After this piece is built, we will also talk to a router which will send requests to the right place. It will also tell the monitoring service to start monitoring things.
 
-## Pieces to talk to
+Rant continued: https://writing.natwelch.com/post/570
 
- - Scheduler : [Nomad](https://www.nomadproject.io/)
- - Router : No idea
- - Monitoring : frontend + [Prometheus](http://prometheus.io/)
+## Config
+
+I think people want a build config. Might as well just have them be explicit.
+
+```
+language:
+  name: ruby
+  version: 2.3.0
+
+apt:
+ - some-package
+```
